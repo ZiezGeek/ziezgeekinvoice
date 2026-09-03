@@ -64,10 +64,6 @@ export default function Login() {
             {busy ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-
-        <p style={{ fontSize: 12.5, color: 'var(--text-dim)', textAlign: 'center', marginTop: 20, marginBottom: 0 }}>
-          Staff accounts are created in Firebase — ask an admin for access.
-        </p>
       </div>
     </div>
   )
