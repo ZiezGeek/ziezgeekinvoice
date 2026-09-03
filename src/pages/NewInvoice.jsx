@@ -21,6 +21,11 @@ export default function NewInvoice() {
   const [lines, setLines] = useState([blankLine()])
   const [saving, setSaving] = useState(false)
 
+  // Device picker state
+  const [deviceType, setDeviceType] = useState('phone') // phone | laptop
+  const [deviceBrand, setDeviceBrand] = useState('')
+  const [deviceModel, setDeviceModel] = useState('')
+
   useEffect(() => {
     listClients().then(setClients)
     nextInvoiceNumber().then(setNumber)
@@ -34,11 +39,19 @@ export default function NewInvoice() {
     setLines((ls) => [...ls, { id: crypto.randomUUID(), description: preset?.description || '', qty: 1, rate: preset?.rate || 0 }])
   }
 
+  function addDeviceLine() {
+    if (!deviceBrand) return
+    const desc = deviceModel ? `${deviceBrand} ${deviceModel}` : deviceBrand
+    addLine({ description: `Device: ${desc}`, rate: 0 })
+    setDeviceModel('')
+  }
+
   function removeLine(id) {
     setLines((ls) => (ls.length > 1 ? ls.filter((l) => l.id !== id) : ls))
   }
 
   const total = lines.reduce((sum, l) => sum + (Number(l.qty) || 0) * (Number(l.rate) || 0), 0)
+  const brandOptions = deviceType === 'phone' ? BUSINESS.phoneBrands : BUSINESS.laptopBrands
 
   async function handleSave(status) {
     if (!clientId) { alert('Select a client first.'); return }
@@ -99,17 +112,58 @@ export default function NewInvoice() {
       </div>
 
       <div className="panel" style={{ padding: 22, marginBottom: 20 }}>
+        <h2 style={{ fontSize: 16, margin: '0 0 14px' }}>Device</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 14, alignItems: 'end' }}>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Type</label>
+            <select
+              value={deviceType}
+              onChange={(e) => { setDeviceType(e.target.value); setDeviceBrand('') }}
+            >
+              <option value="phone">Phone</option>
+              <option value="laptop">Laptop / computer</option>
+            </select>
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Brand</label>
+            <select value={deviceBrand} onChange={(e) => setDeviceBrand(e.target.value)}>
+              <option value="">Select a brand…</option>
+              {brandOptions.map((b) => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+          <div className="field" style={{ marginBottom: 0 }}>
+            <label>Model (optional)</label>
+            <input
+              value={deviceModel}
+              onChange={(e) => setDeviceModel(e.target.value)}
+              placeholder="e.g. Galaxy A54, Inspiron 15"
+            />
+          </div>
+          <button type="button" className="btn btn-ghost" onClick={addDeviceLine} disabled={!deviceBrand}>
+            + Add device line
+          </button>
+        </div>
+      </div>
+
+      <div className="panel" style={{ padding: 22, marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <h2 style={{ fontSize: 16, margin: 0 }}>Line items</h2>
         </div>
 
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 18 }}>
-          {BUSINESS.commonServices.map((s) => (
-            <button key={s.description} type="button" className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: 12.5 }} onClick={() => addLine(s)}>
-              + {s.description}
-            </button>
-          ))}
-        </div>
+        {BUSINESS.serviceGroups.map((group) => (
+          <div key={group.label} style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.4, color: 'var(--text-dim)', marginBottom: 6 }}>
+              {group.label}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {group.services.map((s) => (
+                <button key={s.description} type="button" className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: 12.5 }} onClick={() => addLine(s)}>
+                  + {s.description}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
 
         <table>
           <thead>
