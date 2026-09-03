@@ -23,27 +23,21 @@ export default function InvoiceView() {
     setInvoice((inv) => ({ ...inv, status }))
   }
 
-  // Renders the invoice panel to a PDF file (in-memory, no print dialog).
+  // Renders the invoice panel to a PDF file (in-memory, no print dialog),
+  // keeping the same dark navy theme shown on screen.
   async function buildPdf() {
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
       import('html2canvas'),
       import('jspdf'),
     ])
     const el = panelRef.current
-    el.classList.add('pdf-export')
-    let blob
-    try {
-      const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 })
-      const imgData = canvas.toDataURL('image/png')
-      const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
-      const pageWidth = pdf.internal.pageSize.getWidth()
-      const pageHeight = (canvas.height * pageWidth) / canvas.width
-      pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
-      blob = pdf.output('blob')
-    } finally {
-      el.classList.remove('pdf-export')
-    }
-    return blob
+    const canvas = await html2canvas(el, { backgroundColor: '#0b1830', scale: 2 })
+    const imgData = canvas.toDataURL('image/png')
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
+    const pageWidth = pdf.internal.pageSize.getWidth()
+    const pageHeight = (canvas.height * pageWidth) / canvas.width
+    pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
+    return pdf.output('blob')
   }
 
   function fileName() {
