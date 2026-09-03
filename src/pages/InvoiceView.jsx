@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { getInvoice, updateInvoice } from '../lib/firestore.js'
 import Logo from '../components/Logo.jsx'
@@ -13,6 +13,8 @@ function fmtDate(ts) {
 export default function InvoiceView() {
   const { id } = useParams()
   const [invoice, setInvoice] = useState(null)
+  const [working, setWorking] = useState(false)
+  const panelRef = useRef(null)
 
   useEffect(() => { getInvoice(id).then(setInvoice) }, [id])
 
@@ -21,14 +23,90 @@ export default function InvoiceView() {
     setInvoice((inv) => ({ ...inv, status }))
   }
 
+  // Renders the invoice panel to a PDF file (in-memory, no print dialog).
+  async function buildPdf() {
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf'),
+    ])
+    const el = panelRef.current
+    el.classList.add('pdf-export')
+    let blob
+    try {
+      const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 })
+      const imgData = canvas.toDataURL('image/png')
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
+      const pageWidth = pdf.internal.pageSize.getWidth()
+      const pageHeight = (canvas.height * pageWidth) / canvas.width
+      pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
+      blob = pdf.output('blob')
+    } finally {
+      el.classList.remove('pdf-export')
+    }
+    return blob
+  }
+
+  function fileName() {
+    return `${invoice.type === 'quote' ? 'Quote' : 'Invoice'}-${invoice.number}.pdf`
+  }
+
+  async function handleDownload() {
+    setWorking(true)
+    try {
+      const blob = await buildPdf()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName()
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  async function handleShare() {
+    setWorking(true)
+    try {
+      const blob = await buildPdf()
+      const file = new File([blob], fileName(), { type: 'application/pdf' })
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: fileName(),
+          text: `${invoice.type === 'quote' ? 'Quote' : 'Invoice'} ${invoice.number} from ${BUSINESS.name}`,
+        })
+      } else {
+        // Share isn't supported on this browser/device — fall back to a normal download.
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = fileName()
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+      }
+    } finally {
+      setWorking(false)
+    }
+  }
+
   if (!invoice) return <p style={{ color: 'var(--text-dim)' }}>Loading…</p>
 
   const hasBank = BUSINESS.bank.accountNumber || BUSINESS.bank.accountName
 
   return (
     <div>
-      <div className="no-print" style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-        <button className="btn btn-primary" onClick={() => window.print()}>Print / save as PDF</button>
+      <div className="no-print" style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+        <button className="btn btn-primary" onClick={handleShare} disabled={working}>
+          {working ? 'Preparing…' : 'Share (WhatsApp etc.)'}
+        </button>
+        <button className="btn btn-ghost" onClick={handleDownload} disabled={working}>
+          {working ? 'Preparing…' : 'Download PDF'}
+        </button>
         {invoice.status !== 'paid' && (
           <button className="btn btn-ghost" onClick={() => setStatus('paid')}>Mark as paid</button>
         )}
@@ -37,7 +115,7 @@ export default function InvoiceView() {
         )}
       </div>
 
-      <div className="panel invoice-print" style={{ padding: 40, maxWidth: 820, margin: '0 auto' }}>
+      <div ref={panelRef} className="panel invoice-print" style={{ padding: 40, maxWidth: 820, margin: '0 auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
           <Logo variant="full" height={90} />
           <div style={{ textAlign: 'right' }}>
