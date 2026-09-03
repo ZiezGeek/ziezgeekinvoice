@@ -3,27 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1830" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="ZiezGeek" />
     <title>ZiezGeek Aldevinc — Invoicing</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   </head>
   <body>
     <div id="root"></div>
-    <div id="boot-error" style="display:none; position:fixed; inset:0; background:#0b1830; color:#fff; padding:20px; font-family:monospace; font-size:14px; white-space:pre-wrap; overflow:auto; z-index:9999;"></div>
-    <script>
-      function showBootError(msg) {
-        var el = document.getElementById('boot-error');
-        el.style.display = 'block';
-        el.textContent = 'LOAD ERROR:\n\n' + msg;
-      }
-      window.addEventListener('error', function (e) {
-        showBootError((e.message || 'Unknown error') + '\n\nFile: ' + (e.filename || '') + '\nLine: ' + (e.lineno || ''));
-      });
-      window.addEventListener('unhandledrejection', function (e) {
-        showBootError('Promise rejection: ' + (e.reason && e.reason.message ? e.reason.message : JSON.stringify(e.reason)));
-      });
-    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
