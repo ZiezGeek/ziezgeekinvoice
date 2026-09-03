@@ -24,7 +24,9 @@ export default function InvoiceView() {
   }
 
   // Renders the invoice panel to a PDF file (in-memory, no print dialog),
-  // keeping the same dark navy theme shown on screen.
+  // keeping the same dark navy theme shown on screen. The PDF page is
+  // sized to exactly match the invoice content, so there's no leftover
+  // blank space below it.
   async function buildPdf() {
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
       import('html2canvas'),
@@ -33,10 +35,12 @@ export default function InvoiceView() {
     const el = panelRef.current
     const canvas = await html2canvas(el, { backgroundColor: '#0b1830', scale: 2 })
     const imgData = canvas.toDataURL('image/png')
-    const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = (canvas.height * pageWidth) / canvas.width
-    pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight)
+    const pdf = new jsPDF({
+      unit: 'px',
+      format: [canvas.width, canvas.height],
+      hotfixes: ['px_scaling'],
+    })
+    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height)
     return pdf.output('blob')
   }
 
