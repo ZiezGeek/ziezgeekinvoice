@@ -10,6 +10,20 @@
   </head>
   <body>
     <div id="root"></div>
+    <div id="boot-error" style="display:none; position:fixed; inset:0; background:#0b1830; color:#fff; padding:20px; font-family:monospace; font-size:14px; white-space:pre-wrap; overflow:auto; z-index:9999;"></div>
+    <script>
+      function showBootError(msg) {
+        var el = document.getElementById('boot-error');
+        el.style.display = 'block';
+        el.textContent = 'LOAD ERROR:\n\n' + msg;
+      }
+      window.addEventListener('error', function (e) {
+        showBootError((e.message || 'Unknown error') + '\n\nFile: ' + (e.filename || '') + '\nLine: ' + (e.lineno || ''));
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        showBootError('Promise rejection: ' + (e.reason && e.reason.message ? e.reason.message : JSON.stringify(e.reason)));
+      });
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
