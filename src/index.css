@@ -156,3 +156,19 @@ tbody tr:hover { background: rgba(63, 201, 255, 0.04); }
   body { background: white; color: #111; }
   .invoice-print { color: #111; }
 }
+
+/* Used briefly while generating a PDF — makes the invoice render on a
+   white background with dark text, like a printed page, then it's
+   removed again right after the PDF is captured. */
+.pdf-export {
+  --navy-950: #ffffff;
+  --navy-900: #ffffff;
+  --navy-800: #ffffff;
+  --navy-700: #ffffff;
+  --line: rgba(0, 0, 0, 0.12);
+  --text: #111111;
+  --text-dim: #555555;
+  background: #ffffff !important;
+  color: #111111 !important;
+  box-shadow: none !important;
+}
