@@ -7,9 +7,9 @@ export const BUSINESS = {
   email: 'nkosinathi@ziezgeekaldev.store',
   address: '3788 Afghan, Kinross Ext 25, 2270',
   bank: {
-    accountName: '',
-    bankName: '',
-    accountNumber: '',
+    accountName: 'Nkosinathi Nhlanhla',
+    bankName: 'Capitec Business',
+    accountNumber: '1055750207',
     branchCode: '',
   },
 
