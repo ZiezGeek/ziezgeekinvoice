@@ -9,7 +9,7 @@ export default function Logo({ variant = 'full', height = 48 }) {
     <img
       src={src}
       alt="ZiezGeek Aldevinc"
-      style={{ height, width: 'auto', display: 'block' }}
+      style={{ height, width: 'auto', display: 'block', margin: '0 auto' }}
     />
   )
 }
