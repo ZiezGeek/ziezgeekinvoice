@@ -23,24 +23,28 @@ export default function InvoiceView() {
     setInvoice((inv) => ({ ...inv, status }))
   }
 
-  // Renders the invoice panel to a PDF file (in-memory, no print dialog),
-  // keeping the same dark navy theme shown on screen. The PDF page is
-  // sized to exactly match the invoice content, so there's no leftover
-  // blank space below it.
+  // Renders the invoice panel to a PDF file (in-memory, no print dialog).
+  // windowWidth forces the layout to render at full desktop width even on
+  // a narrow phone screen, so nothing overflows/gets cut off. The PDF page
+  // is sized to exactly match the content's proportions, so there's no
+  // leftover blank space around it.
   async function buildPdf() {
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
       import('html2canvas'),
       import('jspdf'),
     ])
     const el = panelRef.current
-    const canvas = await html2canvas(el, { backgroundColor: '#0b1830', scale: 2 })
-    const imgData = canvas.toDataURL('image/png')
-    const pdf = new jsPDF({
-      unit: 'px',
-      format: [canvas.width, canvas.height],
-      hotfixes: ['px_scaling'],
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#0b1830',
+      scale: 2,
+      windowWidth: 900,
     })
-    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height)
+    const imgData = canvas.toDataURL('image/png')
+    // Convert captured pixels (at 2x scale) to points (72pt = 96px = 1in).
+    const widthPt = (canvas.width / 2) * 0.75
+    const heightPt = (canvas.height / 2) * 0.75
+    const pdf = new jsPDF({ unit: 'pt', format: [widthPt, heightPt] })
+    pdf.addImage(imgData, 'PNG', 0, 0, widthPt, heightPt)
     return pdf.output('blob')
   }
 
