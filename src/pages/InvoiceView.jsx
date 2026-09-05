@@ -23,50 +23,55 @@ export default function InvoiceView() {
     setInvoice((inv) => ({ ...inv, status }))
   }
 
-  // Renders the invoice panel to a PDF file (in-memory, no print dialog).
-  // Temporarily forces the panel to a fixed real width (undoing its
-  // responsive/mobile layout) so nothing wraps or overflows regardless of
-  // how narrow the phone screen actually is, then captures it and builds
-  // a PDF page sized to exactly match — no cut-off content, no white
-  // border around it.
+  // Renders the invoice to a PDF file (in-memory, no print dialog). Instead
+  // of resizing the real on-screen panel (which can still get clipped by
+  // surrounding page layout on some phones), this builds a completely
+  // separate, detached copy of it off-screen at a fixed desktop width with
+  // nothing around it, captures that, then removes it. The PDF page is
+  // sized to exactly match, so there's no cut-off content and no leftover
+  // white space.
   async function buildPdf() {
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
       import('html2canvas'),
       import('jspdf'),
     ])
-    const el = panelRef.current
-    const prevWidth = el.style.width
-    const prevMaxWidth = el.style.maxWidth
-    const prevMargin = el.style.margin
 
-    el.style.maxWidth = 'none'
-    el.style.width = '820px'
-    el.style.margin = '0'
-    // Let the browser finish reflowing to the new fixed width before capturing.
+    const wrapper = document.createElement('div')
+    wrapper.style.position = 'fixed'
+    wrapper.style.top = '0'
+    wrapper.style.left = '-99999px'
+    wrapper.style.background = '#0b1830'
+    wrapper.style.margin = '0'
+    wrapper.style.padding = '0'
+
+    const clone = panelRef.current.cloneNode(true)
+    clone.style.maxWidth = 'none'
+    clone.style.width = '820px'
+    clone.style.margin = '0'
+
+    wrapper.appendChild(clone)
+    document.body.appendChild(wrapper)
+    // Let the browser lay out and paint the clone before capturing it.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
 
     let blob
     try {
-      const scale = 2
-      const canvas = await html2canvas(el, {
+      const canvas = await html2canvas(clone, {
         backgroundColor: '#0b1830',
-        scale,
-        width: el.scrollWidth,
-        height: el.scrollHeight,
-        windowWidth: el.scrollWidth,
+        scale: 2,
+        width: clone.scrollWidth,
+        height: clone.scrollHeight,
+        windowWidth: clone.scrollWidth,
       })
       const imgData = canvas.toDataURL('image/png')
-      // Convert captured pixels back to points (72pt = 96px = 1in) using the
-      // same source dimensions as the capture, so the page exactly matches.
-      const widthPt = el.scrollWidth * 0.75
-      const heightPt = el.scrollHeight * 0.75
+      // Convert the clone's real pixel size to points (72pt = 96px = 1in).
+      const widthPt = clone.scrollWidth * 0.75
+      const heightPt = clone.scrollHeight * 0.75
       const pdf = new jsPDF({ unit: 'pt', format: [widthPt, heightPt] })
       pdf.addImage(imgData, 'PNG', 0, 0, widthPt, heightPt)
       blob = pdf.output('blob')
     } finally {
-      el.style.width = prevWidth
-      el.style.maxWidth = prevMaxWidth
-      el.style.margin = prevMargin
+      document.body.removeChild(wrapper)
     }
     return blob
   }
