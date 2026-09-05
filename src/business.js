@@ -62,8 +62,12 @@ export const BUSINESS = {
     {
       label: 'Websites & design',
       services: [
+        { description: 'Website + Hosting', rate: 0 },
         { description: 'Website design & build', rate: 0 },
-        { description: 'Website hosting & domain setup', rate: 0 },
+        { description: 'Single webpage design', rate: 0 },
+        { description: 'Website hosting (annual)', rate: 0 },
+        { description: 'Domain registration', rate: 0 },
+        { description: 'Professional email setup', rate: 0 },
         { description: 'Website maintenance / updates', rate: 0 },
         { description: 'E-commerce store setup', rate: 0 },
         { description: 'Logo design', rate: 0 },
