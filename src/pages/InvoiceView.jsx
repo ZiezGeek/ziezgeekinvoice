@@ -24,28 +24,51 @@ export default function InvoiceView() {
   }
 
   // Renders the invoice panel to a PDF file (in-memory, no print dialog).
-  // windowWidth forces the layout to render at full desktop width even on
-  // a narrow phone screen, so nothing overflows/gets cut off. The PDF page
-  // is sized to exactly match the content's proportions, so there's no
-  // leftover blank space around it.
+  // Temporarily forces the panel to a fixed real width (undoing its
+  // responsive/mobile layout) so nothing wraps or overflows regardless of
+  // how narrow the phone screen actually is, then captures it and builds
+  // a PDF page sized to exactly match — no cut-off content, no white
+  // border around it.
   async function buildPdf() {
     const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
       import('html2canvas'),
       import('jspdf'),
     ])
     const el = panelRef.current
-    const canvas = await html2canvas(el, {
-      backgroundColor: '#0b1830',
-      scale: 2,
-      windowWidth: 900,
-    })
-    const imgData = canvas.toDataURL('image/png')
-    // Convert captured pixels (at 2x scale) to points (72pt = 96px = 1in).
-    const widthPt = (canvas.width / 2) * 0.75
-    const heightPt = (canvas.height / 2) * 0.75
-    const pdf = new jsPDF({ unit: 'pt', format: [widthPt, heightPt] })
-    pdf.addImage(imgData, 'PNG', 0, 0, widthPt, heightPt)
-    return pdf.output('blob')
+    const prevWidth = el.style.width
+    const prevMaxWidth = el.style.maxWidth
+    const prevMargin = el.style.margin
+
+    el.style.maxWidth = 'none'
+    el.style.width = '820px'
+    el.style.margin = '0'
+    // Let the browser finish reflowing to the new fixed width before capturing.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+
+    let blob
+    try {
+      const scale = 2
+      const canvas = await html2canvas(el, {
+        backgroundColor: '#0b1830',
+        scale,
+        width: el.scrollWidth,
+        height: el.scrollHeight,
+        windowWidth: el.scrollWidth,
+      })
+      const imgData = canvas.toDataURL('image/png')
+      // Convert captured pixels back to points (72pt = 96px = 1in) using the
+      // same source dimensions as the capture, so the page exactly matches.
+      const widthPt = el.scrollWidth * 0.75
+      const heightPt = el.scrollHeight * 0.75
+      const pdf = new jsPDF({ unit: 'pt', format: [widthPt, heightPt] })
+      pdf.addImage(imgData, 'PNG', 0, 0, widthPt, heightPt)
+      blob = pdf.output('blob')
+    } finally {
+      el.style.width = prevWidth
+      el.style.maxWidth = prevMaxWidth
+      el.style.margin = prevMargin
+    }
+    return blob
   }
 
   function fileName() {
