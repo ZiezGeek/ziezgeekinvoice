@@ -19,6 +19,7 @@ const COLOR = {
   text: [234, 243, 251],  // --text
   textDim: [144, 164, 189], // --text-dim
   accent: [63, 201, 255],  // --cyan
+  green: [126, 228, 74],   // --green
 }
 
 async function imageToDataUrl(url) {
@@ -46,92 +47,135 @@ export default function InvoiceView() {
   }
 
   // Builds the PDF by drawing directly with code (text, lines, the logo
-  // image) instead of taking a screenshot of the page. This guarantees
-  // the layout, so nothing can get cut off or leave stray white space
-  // regardless of the phone's screen size.
+  // image) instead of taking a screenshot of the page. Uses a standard A4
+  // page (the one size every PDF viewer handles correctly) filled edge to
+  // edge with the dark navy background, with content anchored top-left —
+  // this avoids any viewer quirks with unusual custom page shapes.
   async function buildPdf() {
     const { jsPDF } = await import('jspdf')
 
-    const PAGE_W = 620
-    const MARGIN = 40
+    const pdf = new jsPDF({ unit: 'pt', format: 'a4' })
+    const PAGE_W = pdf.internal.pageSize.getWidth()
+    const PAGE_H = pdf.internal.pageSize.getHeight()
+    const MARGIN = 42
     const CONTENT_W = PAGE_W - MARGIN * 2
 
     const lines = invoice.lines || []
     const hasBank = BUSINESS.bank.accountNumber || BUSINESS.bank.accountName
 
-    // Work out the page height up front from the content, so there's no
-    // leftover blank space at the bottom.
-    let estimatedHeight = 170 // header + from/billed-to + table header
-    estimatedHeight += lines.length * 24 + 40 // rows + total
-    if (invoice.notes) estimatedHeight += 60
-    estimatedHeight += 70 // banking details
-    estimatedHeight += MARGIN * 2
-
-    const pdf = new jsPDF({ unit: 'pt', format: [PAGE_W, estimatedHeight] })
-
-    // Background
+    // Background covers the full standard page, so any unused space below
+    // the content stays dark navy instead of showing blank white.
     pdf.setFillColor(...COLOR.bg)
-    pdf.rect(0, 0, PAGE_W, estimatedHeight, 'F')
+    pdf.rect(0, 0, PAGE_W, PAGE_H, 'F')
+
+    // A two-color line mimicking the app's cyan-to-green accent divider.
+    function accentDivider(y) {
+      const mid = MARGIN + CONTENT_W / 2
+      pdf.setLineWidth(1.4)
+      pdf.setDrawColor(...COLOR.accent)
+      pdf.line(MARGIN, y, mid, y)
+      pdf.setDrawColor(...COLOR.green)
+      pdf.line(mid, y, PAGE_W - MARGIN, y)
+    }
 
     let y = MARGIN
 
     // Logo (top-left), keeping its real aspect ratio.
+    let logoH = 0
     try {
       const logoData = await imageToDataUrl(logoFullUrl)
-      const logoW = 130
-      const logoH = logoW * (650 / 730)
+      const logoW = 118
+      logoH = logoW * (650 / 730)
       pdf.addImage(logoData, 'PNG', MARGIN, y, logoW, logoH)
     } catch {
       // If the logo can't be loaded, just skip it rather than fail the whole PDF.
     }
 
-    // Title block (top-right)
-    pdf.setTextColor(...COLOR.text)
+    y += logoH + 22
+    accentDivider(y)
+    y += 26
+
+    // Header row: title + client (left) · quote meta (middle) · banking details (right)
+    const headerTop = y
+    const leftX = MARGIN
+    const midX = MARGIN + CONTENT_W * 0.4
+    const rightX = PAGE_W - MARGIN
+
+    // Left: document title + who it's for
     pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(20)
-    const title = invoice.type === 'quote' ? 'Quote' : 'Invoice'
-    pdf.text(title, PAGE_W - MARGIN, y + 18, { align: 'right' })
-    pdf.setFont('helvetica', 'normal')
-    pdf.setFontSize(11)
-    pdf.setTextColor(...COLOR.textDim)
-    pdf.text(invoice.number || '', PAGE_W - MARGIN, y + 36, { align: 'right' })
-    pdf.text(fmtDate(invoice.createdAt), PAGE_W - MARGIN, y + 52, { align: 'right' })
-
-    y += 100
-    pdf.setDrawColor(...COLOR.line)
-    pdf.setLineWidth(1)
-    pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
-    y += 24
-
-    // FROM / BILLED TO
-    const colW = CONTENT_W / 2
-    const fromX = MARGIN
-    const billedX = MARGIN + colW
-
+    pdf.setFontSize(22)
+    pdf.setTextColor(...COLOR.accent)
+    pdf.text(invoice.type === 'quote' ? 'QUOTE' : 'INVOICE', leftX, y)
+    y += 22
     pdf.setFontSize(9)
     pdf.setTextColor(...COLOR.textDim)
-    pdf.text('FROM', fromX, y)
-    pdf.text('BILLED TO', billedX, y)
-
-    pdf.setFontSize(12)
+    pdf.text('BILLED TO', leftX, y)
+    y += 14
     pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(12)
     pdf.setTextColor(...COLOR.text)
-    pdf.text(BUSINESS.name, fromX, y + 16)
-    pdf.text(invoice.clientSnapshot?.name || '', billedX, y + 16)
-
+    pdf.text(invoice.clientSnapshot?.name || '', leftX, y)
+    y += 15
     pdf.setFont('helvetica', 'normal')
-    pdf.setFontSize(10)
+    pdf.setFontSize(9.5)
     pdf.setTextColor(...COLOR.textDim)
-    pdf.text(BUSINESS.address, fromX, y + 30, { maxWidth: colW - 16 })
-    pdf.text(`${BUSINESS.phone} · ${BUSINESS.email}`, fromX, y + 43, { maxWidth: colW - 16 })
-
-    pdf.text(invoice.clientSnapshot?.address || '', billedX, y + 30, { maxWidth: colW - 16 })
+    pdf.text(invoice.clientSnapshot?.address || '', leftX, y, { maxWidth: midX - leftX - 16 })
+    y += 13
     pdf.text(
       [invoice.clientSnapshot?.phone, invoice.clientSnapshot?.email].filter(Boolean).join(' · '),
-      billedX, y + 43, { maxWidth: colW - 16 }
+      leftX, y, { maxWidth: midX - leftX - 16 }
     )
+    const leftBottom = y
 
-    y += 70
+    // Middle: quote/invoice meta fields
+    y = headerTop
+    function metaField(label, value) {
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(9)
+      pdf.setTextColor(...COLOR.textDim)
+      pdf.text(label, midX, y)
+      y += 13
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(11)
+      pdf.setTextColor(...COLOR.text)
+      pdf.text(value || '—', midX, y)
+      y += 20
+    }
+    metaField(invoice.type === 'quote' ? 'QUOTE NUMBER' : 'INVOICE NUMBER', invoice.number)
+    metaField('DATE', fmtDate(invoice.createdAt))
+    if (invoice.dueDate) metaField('DUE DATE', invoice.dueDate)
+    const midBottom = y
+
+    // Right: banking details, prominent and up top
+    y = headerTop
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(9)
+    pdf.setTextColor(...COLOR.textDim)
+    pdf.text('BANKING DETAILS', rightX, y, { align: 'right' })
+    y += 15
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(10)
+    pdf.setTextColor(...COLOR.text)
+    if (hasBank) {
+      const bankLines = [
+        BUSINESS.bank.accountName,
+        BUSINESS.bank.bankName,
+        BUSINESS.bank.accountNumber ? `Acc ${BUSINESS.bank.accountNumber}` : null,
+        BUSINESS.bank.branchCode ? `Branch ${BUSINESS.bank.branchCode}` : null,
+      ].filter(Boolean)
+      bankLines.forEach((line) => { pdf.text(line, rightX, y, { align: 'right' }); y += 14 })
+    } else {
+      pdf.setTextColor(...COLOR.textDim)
+      pdf.text('Add banking details in', rightX, y, { align: 'right' })
+      y += 13
+      pdf.text('src/business.js', rightX, y, { align: 'right' })
+      y += 13
+    }
+    const rightBottom = y
+
+    y = Math.max(leftBottom, midBottom, rightBottom) + 20
+    accentDivider(y)
+    y += 26
 
     // Table header
     const col = {
@@ -140,6 +184,7 @@ export default function InvoiceView() {
       rate: MARGIN + CONTENT_W * 0.7,
       amount: PAGE_W - MARGIN,
     }
+    pdf.setFont('helvetica', 'normal')
     pdf.setFontSize(9)
     pdf.setTextColor(...COLOR.textDim)
     pdf.text('DESCRIPTION', col.desc, y)
@@ -148,8 +193,9 @@ export default function InvoiceView() {
     pdf.text('AMOUNT', col.amount, y, { align: 'right' })
     y += 8
     pdf.setDrawColor(...COLOR.line)
+    pdf.setLineWidth(1)
     pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
-    y += 18
+    y += 20
 
     // Table rows
     pdf.setFontSize(11)
@@ -161,59 +207,44 @@ export default function InvoiceView() {
       pdf.text(`R ${Number(l.rate).toFixed(2)}`, col.rate, y)
       pdf.text(`R ${amount.toFixed(2)}`, col.amount, y, { align: 'right' })
       y += 24
+      pdf.setDrawColor(30, 50, 75)
+      pdf.setLineWidth(0.5)
+      pdf.line(MARGIN, y - 8, PAGE_W - MARGIN, y - 8)
     })
 
-    y += 6
-    pdf.setDrawColor(...COLOR.line)
-    pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
-    y += 22
+    y += 14
 
     // Total
     pdf.setFont('helvetica', 'bold')
-    pdf.setFontSize(15)
+    pdf.setFontSize(16)
     pdf.setTextColor(...COLOR.text)
     pdf.text(`Total: R ${Number(invoice.total).toFixed(2)}`, PAGE_W - MARGIN, y, { align: 'right' })
-    y += 24
+    y += 30
 
-    // Notes
+    // Notes, styled like a "Terms" section
     if (invoice.notes) {
-      pdf.setDrawColor(...COLOR.line)
-      pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
-      y += 18
-      pdf.setFont('helvetica', 'normal')
-      pdf.setFontSize(9)
+      accentDivider(y)
+      y += 20
+      pdf.setFont('helvetica', 'bold')
+      pdf.setFontSize(10)
       pdf.setTextColor(...COLOR.textDim)
       pdf.text('NOTES', MARGIN, y)
-      y += 14
-      pdf.setFontSize(11)
+      y += 16
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(10.5)
       pdf.setTextColor(...COLOR.text)
       pdf.text(invoice.notes, MARGIN, y, { maxWidth: CONTENT_W })
       y += 24
     }
 
-    // Banking details
-    pdf.setDrawColor(...COLOR.line)
-    pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
-    y += 18
+    // Footer, anchored to the bottom of the page like a company registration line
     pdf.setFont('helvetica', 'normal')
-    pdf.setFontSize(9)
+    pdf.setFontSize(8.5)
     pdf.setTextColor(...COLOR.textDim)
-    pdf.text('BANKING DETAILS', MARGIN, y)
-    y += 14
-    pdf.setFontSize(10.5)
-    pdf.setTextColor(...COLOR.text)
-    if (hasBank) {
-      const parts = [
-        BUSINESS.bank.accountName,
-        BUSINESS.bank.bankName,
-        BUSINESS.bank.accountNumber ? `Acc ${BUSINESS.bank.accountNumber}` : null,
-        BUSINESS.bank.branchCode ? `Branch ${BUSINESS.bank.branchCode}` : null,
-      ].filter(Boolean)
-      pdf.text(parts.join(' · '), MARGIN, y, { maxWidth: CONTENT_W })
-    } else {
-      pdf.setTextColor(...COLOR.textDim)
-      pdf.text('Add your banking details in src/business.js once ready.', MARGIN, y, { maxWidth: CONTENT_W })
-    }
+    pdf.text(
+      `${BUSINESS.name} · ${BUSINESS.address} · ${BUSINESS.phone} · ${BUSINESS.email}`,
+      PAGE_W / 2, PAGE_H - 28, { align: 'center', maxWidth: CONTENT_W }
+    )
 
     return pdf.output('blob')
   }
