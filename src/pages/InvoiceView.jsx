@@ -2,12 +2,34 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { getInvoice, updateInvoice } from '../lib/firestore.js'
 import Logo from '../components/Logo.jsx'
+import logoFullUrl from '../assets/logo-full.png'
 import { BUSINESS } from '../business.js'
 
 function fmtDate(ts) {
   if (!ts) return '—'
   const d = ts.toDate ? ts.toDate() : new Date(ts)
   return d.toLocaleDateString('en-ZA', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+// Theme colors as RGB triples, matching the app's dark navy theme.
+const COLOR = {
+  bg: [11, 24, 48],       // --navy-800
+  bgDark: [7, 16, 33],    // --navy-900
+  line: [50, 85, 115],
+  text: [234, 243, 251],  // --text
+  textDim: [144, 164, 189], // --text-dim
+  accent: [63, 201, 255],  // --cyan
+}
+
+async function imageToDataUrl(url) {
+  const res = await fetch(url)
+  const blob = await res.blob()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
 }
 
 export default function InvoiceView() {
@@ -23,57 +45,177 @@ export default function InvoiceView() {
     setInvoice((inv) => ({ ...inv, status }))
   }
 
-  // Renders the invoice to a PDF file (in-memory, no print dialog). Instead
-  // of resizing the real on-screen panel (which can still get clipped by
-  // surrounding page layout on some phones), this builds a completely
-  // separate, detached copy of it off-screen at a fixed desktop width with
-  // nothing around it, captures that, then removes it. The PDF page is
-  // sized to exactly match, so there's no cut-off content and no leftover
-  // white space.
+  // Builds the PDF by drawing directly with code (text, lines, the logo
+  // image) instead of taking a screenshot of the page. This guarantees
+  // the layout, so nothing can get cut off or leave stray white space
+  // regardless of the phone's screen size.
   async function buildPdf() {
-    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-      import('html2canvas'),
-      import('jspdf'),
-    ])
+    const { jsPDF } = await import('jspdf')
 
-    const wrapper = document.createElement('div')
-    wrapper.style.position = 'fixed'
-    wrapper.style.top = '0'
-    wrapper.style.left = '-99999px'
-    wrapper.style.background = '#0b1830'
-    wrapper.style.margin = '0'
-    wrapper.style.padding = '0'
+    const PAGE_W = 620
+    const MARGIN = 40
+    const CONTENT_W = PAGE_W - MARGIN * 2
 
-    const clone = panelRef.current.cloneNode(true)
-    clone.style.maxWidth = 'none'
-    clone.style.width = '820px'
-    clone.style.margin = '0'
+    const lines = invoice.lines || []
+    const hasBank = BUSINESS.bank.accountNumber || BUSINESS.bank.accountName
 
-    wrapper.appendChild(clone)
-    document.body.appendChild(wrapper)
-    // Let the browser lay out and paint the clone before capturing it.
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    // Work out the page height up front from the content, so there's no
+    // leftover blank space at the bottom.
+    let estimatedHeight = 170 // header + from/billed-to + table header
+    estimatedHeight += lines.length * 24 + 40 // rows + total
+    if (invoice.notes) estimatedHeight += 60
+    estimatedHeight += 70 // banking details
+    estimatedHeight += MARGIN * 2
 
-    let blob
+    const pdf = new jsPDF({ unit: 'pt', format: [PAGE_W, estimatedHeight] })
+
+    // Background
+    pdf.setFillColor(...COLOR.bg)
+    pdf.rect(0, 0, PAGE_W, estimatedHeight, 'F')
+
+    let y = MARGIN
+
+    // Logo (top-left), keeping its real aspect ratio.
     try {
-      const canvas = await html2canvas(clone, {
-        backgroundColor: '#0b1830',
-        scale: 2,
-        width: clone.scrollWidth,
-        height: clone.scrollHeight,
-        windowWidth: clone.scrollWidth,
-      })
-      const imgData = canvas.toDataURL('image/png')
-      // Convert the clone's real pixel size to points (72pt = 96px = 1in).
-      const widthPt = clone.scrollWidth * 0.75
-      const heightPt = clone.scrollHeight * 0.75
-      const pdf = new jsPDF({ unit: 'pt', format: [widthPt, heightPt] })
-      pdf.addImage(imgData, 'PNG', 0, 0, widthPt, heightPt)
-      blob = pdf.output('blob')
-    } finally {
-      document.body.removeChild(wrapper)
+      const logoData = await imageToDataUrl(logoFullUrl)
+      const logoW = 130
+      const logoH = logoW * (650 / 730)
+      pdf.addImage(logoData, 'PNG', MARGIN, y, logoW, logoH)
+    } catch {
+      // If the logo can't be loaded, just skip it rather than fail the whole PDF.
     }
-    return blob
+
+    // Title block (top-right)
+    pdf.setTextColor(...COLOR.text)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(20)
+    const title = invoice.type === 'quote' ? 'Quote' : 'Invoice'
+    pdf.text(title, PAGE_W - MARGIN, y + 18, { align: 'right' })
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(11)
+    pdf.setTextColor(...COLOR.textDim)
+    pdf.text(invoice.number || '', PAGE_W - MARGIN, y + 36, { align: 'right' })
+    pdf.text(fmtDate(invoice.createdAt), PAGE_W - MARGIN, y + 52, { align: 'right' })
+
+    y += 100
+    pdf.setDrawColor(...COLOR.line)
+    pdf.setLineWidth(1)
+    pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
+    y += 24
+
+    // FROM / BILLED TO
+    const colW = CONTENT_W / 2
+    const fromX = MARGIN
+    const billedX = MARGIN + colW
+
+    pdf.setFontSize(9)
+    pdf.setTextColor(...COLOR.textDim)
+    pdf.text('FROM', fromX, y)
+    pdf.text('BILLED TO', billedX, y)
+
+    pdf.setFontSize(12)
+    pdf.setFont('helvetica', 'bold')
+    pdf.setTextColor(...COLOR.text)
+    pdf.text(BUSINESS.name, fromX, y + 16)
+    pdf.text(invoice.clientSnapshot?.name || '', billedX, y + 16)
+
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(10)
+    pdf.setTextColor(...COLOR.textDim)
+    pdf.text(BUSINESS.address, fromX, y + 30, { maxWidth: colW - 16 })
+    pdf.text(`${BUSINESS.phone} · ${BUSINESS.email}`, fromX, y + 43, { maxWidth: colW - 16 })
+
+    pdf.text(invoice.clientSnapshot?.address || '', billedX, y + 30, { maxWidth: colW - 16 })
+    pdf.text(
+      [invoice.clientSnapshot?.phone, invoice.clientSnapshot?.email].filter(Boolean).join(' · '),
+      billedX, y + 43, { maxWidth: colW - 16 }
+    )
+
+    y += 70
+
+    // Table header
+    const col = {
+      desc: MARGIN,
+      qty: MARGIN + CONTENT_W * 0.55,
+      rate: MARGIN + CONTENT_W * 0.7,
+      amount: PAGE_W - MARGIN,
+    }
+    pdf.setFontSize(9)
+    pdf.setTextColor(...COLOR.textDim)
+    pdf.text('DESCRIPTION', col.desc, y)
+    pdf.text('QTY', col.qty, y)
+    pdf.text('RATE', col.rate, y)
+    pdf.text('AMOUNT', col.amount, y, { align: 'right' })
+    y += 8
+    pdf.setDrawColor(...COLOR.line)
+    pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
+    y += 18
+
+    // Table rows
+    pdf.setFontSize(11)
+    pdf.setTextColor(...COLOR.text)
+    lines.forEach((l) => {
+      const amount = (Number(l.qty) || 0) * (Number(l.rate) || 0)
+      pdf.text(String(l.description || ''), col.desc, y, { maxWidth: col.qty - col.desc - 10 })
+      pdf.text(String(l.qty), col.qty, y)
+      pdf.text(`R ${Number(l.rate).toFixed(2)}`, col.rate, y)
+      pdf.text(`R ${amount.toFixed(2)}`, col.amount, y, { align: 'right' })
+      y += 24
+    })
+
+    y += 6
+    pdf.setDrawColor(...COLOR.line)
+    pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
+    y += 22
+
+    // Total
+    pdf.setFont('helvetica', 'bold')
+    pdf.setFontSize(15)
+    pdf.setTextColor(...COLOR.text)
+    pdf.text(`Total: R ${Number(invoice.total).toFixed(2)}`, PAGE_W - MARGIN, y, { align: 'right' })
+    y += 24
+
+    // Notes
+    if (invoice.notes) {
+      pdf.setDrawColor(...COLOR.line)
+      pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
+      y += 18
+      pdf.setFont('helvetica', 'normal')
+      pdf.setFontSize(9)
+      pdf.setTextColor(...COLOR.textDim)
+      pdf.text('NOTES', MARGIN, y)
+      y += 14
+      pdf.setFontSize(11)
+      pdf.setTextColor(...COLOR.text)
+      pdf.text(invoice.notes, MARGIN, y, { maxWidth: CONTENT_W })
+      y += 24
+    }
+
+    // Banking details
+    pdf.setDrawColor(...COLOR.line)
+    pdf.line(MARGIN, y, PAGE_W - MARGIN, y)
+    y += 18
+    pdf.setFont('helvetica', 'normal')
+    pdf.setFontSize(9)
+    pdf.setTextColor(...COLOR.textDim)
+    pdf.text('BANKING DETAILS', MARGIN, y)
+    y += 14
+    pdf.setFontSize(10.5)
+    pdf.setTextColor(...COLOR.text)
+    if (hasBank) {
+      const parts = [
+        BUSINESS.bank.accountName,
+        BUSINESS.bank.bankName,
+        BUSINESS.bank.accountNumber ? `Acc ${BUSINESS.bank.accountNumber}` : null,
+        BUSINESS.bank.branchCode ? `Branch ${BUSINESS.bank.branchCode}` : null,
+      ].filter(Boolean)
+      pdf.text(parts.join(' · '), MARGIN, y, { maxWidth: CONTENT_W })
+    } else {
+      pdf.setTextColor(...COLOR.textDim)
+      pdf.text('Add your banking details in src/business.js once ready.', MARGIN, y, { maxWidth: CONTENT_W })
+    }
+
+    return pdf.output('blob')
   }
 
   function fileName() {
@@ -109,7 +251,6 @@ export default function InvoiceView() {
           text: `${invoice.type === 'quote' ? 'Quote' : 'Invoice'} ${invoice.number} from ${BUSINESS.name}`,
         })
       } else {
-        // Share isn't supported on this browser/device — fall back to a normal download.
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
